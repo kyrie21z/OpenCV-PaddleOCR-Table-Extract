@@ -1,0 +1,13 @@
+{
+    "input_path": "textline_rot180_demo.jpg",
+    "page_index": null,
+    "class_ids": [
+        2
+    ],
+    "scores": [
+        0.5623199939727783
+    ],
+    "label_names": [
+        "180"
+    ]
+}
