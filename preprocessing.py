@@ -2,7 +2,6 @@ import cv2 as cv
 # from ROI_selection import detect_lines, get_ROI
 import numpy as np
 from paddleocr import PPStructureV3, PaddleOCR
-from visualdl.server.api import result
 
 
 def get_grayscale(image):
@@ -10,7 +9,9 @@ def get_grayscale(image):
 
 
 def get_binary(image):
-    (thresh, blackAndWhiteImage) = cv.threshold(image, 100, 255, cv.THRESH_BINARY)
+    blackAndWhiteImage = cv.adaptiveThreshold(image, 255,
+                                      cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                      cv.THRESH_BINARY_INV, 11, 2)
     return blackAndWhiteImage
 
 
@@ -49,6 +50,10 @@ def draw_rec(src):
     )
 
     result = img.predict(src)
+
+    for res in result:
+        res.save_to_img('./output')
+        res.save_to_json('./output')
 
     rec_list = []
     for coor in result[0]['dt_polys']:
