@@ -1,5 +1,5 @@
 {
-    "input_path": ".\\page_13.png",
+    "input_path": "photo/page_13.png",
     "page_index": null,
     "model_settings": {
         "use_doc_preprocessor": true,

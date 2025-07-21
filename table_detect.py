@@ -44,7 +44,7 @@ def detect_table(image_path):
 
 # 使用示例
 if __name__ == "__main__":
-    image_path = "page_3.png"  # 替换为你的图片路径
+    image_path = "photo/page_3.png"  # 替换为你的图片路径
     result_image, table_bbox = detect_table(image_path)
 
     if table_bbox is not None:
