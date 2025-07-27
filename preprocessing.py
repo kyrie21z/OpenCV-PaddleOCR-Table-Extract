@@ -1,3 +1,5 @@
+import os.path
+
 import cv2 as cv
 # from ROI_selection import detect_lines, get_ROI
 import numpy as np
@@ -42,7 +44,7 @@ def draw_text(src, x, y, w, h, text):
 
     return cFrame
 
-def draw_rec(src):
+def draw_rec(file_name, src):
     img = PaddleOCR(
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
@@ -51,9 +53,13 @@ def draw_rec(src):
 
     result = img.predict(src)
 
+    res_ocr_file = file_name + '_ocr.jpg'
+    res_json_file = file_name + '_ocr.json'
+    res_ocr_path = os.path.join('./output', res_ocr_file)
+    res_json_path = os.path.join('./output', res_json_file)
     for res in result:
-        res.save_to_img('./output')
-        res.save_to_json('./output')
+        res.save_to_img(res_ocr_path)
+        res.save_to_json(res_json_path)
 
     rec_list = []
     for coor in result[0]['dt_polys']:
@@ -74,6 +80,17 @@ def erode(img, kernel_size=5):
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
     img_erosion = cv.dilate(img, kernel, iterations=2)
     return img_erosion
+
+def preprocess(image):
+    # 高斯模糊减少噪点
+    blurred = cv.GaussianBlur(image, (5, 5), 0)
+    # 转换为灰度图
+    gray = cv.cvtColor(blurred, cv.COLOR_RGB2GRAY)
+    # 自适应阈值处理
+    thresh = cv.adaptiveThreshold(gray, 255,
+                                  cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                  cv.THRESH_BINARY_INV, 11, 2)
+    return thresh
 
 def main():
     img_path = './photo/general_ocr_002.png'
