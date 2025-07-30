@@ -3,11 +3,13 @@ import sys
 import math
 import cv2 as cv
 import numpy as np
+from langchain_community.callbacks.tracers.wandb import build_tree
 from more_itertools.more import first
 from paddle.base.libpaddle.eager.ops.legacy import pixel_shuffle
 from paddleocr import PaddleOCR
+from scipy.spatial import cKDTree
 
-from preprocessing import draw_rec
+from preprocessing import draw_rec, preprocess
 
 def is_vertical(line, threshold=3):
     return abs(line[0] - line[2]) <= threshold
@@ -102,35 +104,18 @@ def overlapping_filter(lines, sorting_index, threshold=5):
 #
 #     return (horizontal_lines, vertical_lines)
 
-def detect_lines(file, image, min_length=30, y_threshold=5, gapthreshold=10, continuity_threshold=0.95):
-    # 检测直线之前进行ocr识别以确保识别准确度
-    img = PaddleOCR(
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_textline_orientation=True,
-    )
+def detect_lines(file, image, result, min_length=50, y_threshold=5, gapthreshold=10, continuity_threshold=0.95, is_draw = True):
+    rec_list = result[0]['dt_polys']
 
-    result = img.predict(image)
+    image_preprocessed = preprocess(image)
 
-    res_ocr_file = file + '_ocr.jpg'
-    res_json_file = file + '_ocr.json'
-    res_ocr_path = os.path.join('./output', res_ocr_file)
-    res_json_path = os.path.join('./output', res_json_file)
-    for res in result:
-        res.save_to_img(res_ocr_path)
-        res.save_to_json(res_json_path)
-
-    rec_list = []
-    for coor in result[0]['dt_polys']:
-        rec_list.append(coor)
-
-    gray = cv.cvtColor(image, cv.COLOR_RGB2GRAY)
-    binary = cv.adaptiveThreshold(gray, 255,
-                                   cv.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                   cv.THRESH_BINARY_INV, 11, 2)
+    # gray = cv.cvtColor(image, cv.COLOR_RGB2GRAY)
+    # binary = cv.adaptiveThreshold(gray, 255,
+    #                                cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+    #                                cv.THRESH_BINARY_INV, 11, 2)
 
     kernel_horizontal = cv.getStructuringElement(cv.MORPH_RECT, (min_length, 1))
-    horizontal_lines_map = cv.morphologyEx(binary, cv.MORPH_OPEN, kernel_horizontal)
+    horizontal_lines_map = cv.morphologyEx(image_preprocessed, cv.MORPH_OPEN, kernel_horizontal)
 
     temp_lines = []
     processed_mask = np.zeros(horizontal_lines_map.shape, dtype=bool)
@@ -146,7 +131,7 @@ def detect_lines(file, image, min_length=30, y_threshold=5, gapthreshold=10, con
                 processed_mask[y, x_start:x_end + 1] = True
 
                 segment_length = x_end - x_start + 1
-                line_slice = binary[y, x_start:x_end + 1]
+                line_slice = image_preprocessed[y, x_start:x_end + 1]
                 pixel_count = np.count_nonzero(line_slice)
                 ratio = pixel_count / segment_length
 
@@ -162,11 +147,11 @@ def detect_lines(file, image, min_length=30, y_threshold=5, gapthreshold=10, con
 
     for i in range(1, len(temp_lines)):
         line = temp_lines[i]
-        if abs(line[1] - current_group[-1][1]) <= y_threshold:
+        min_x1 = min(l[0] for l in current_group)
+        max_x2 = max(l[2] for l in current_group)
+        if abs(line[1] - current_group[-1][1]) <= y_threshold and (abs(line[0] - max_x2) < gapthreshold or abs(line[2] - min_x1) < gapthreshold):
             current_group.append(line)
         else:
-            min_x1 = min(l[0] for l in current_group)
-            max_x2 = max(l[2] for l in current_group)
             avg_y = int(np.mean([l[1] for l in current_group]))
             merged_lines.append((min_x1, avg_y, max_x2, avg_y))
             current_group = [line]
@@ -178,7 +163,7 @@ def detect_lines(file, image, min_length=30, y_threshold=5, gapthreshold=10, con
         merged_lines.append((min_x1, avg_y, max_x2, avg_y))
 
     kernel_vertical = cv.getStructuringElement(cv.MORPH_RECT, (1, min_length))
-    vertical_lines_map = cv.morphologyEx(binary, cv.MORPH_OPEN, kernel_vertical)
+    vertical_lines_map = cv.morphologyEx(image_preprocessed, cv.MORPH_OPEN, kernel_vertical)
     Temp_lines = []
     Processed_mask = np.zeros(vertical_lines_map.shape, dtype=bool)
 
@@ -192,7 +177,7 @@ def detect_lines(file, image, min_length=30, y_threshold=5, gapthreshold=10, con
                 Processed_mask[y_start:y_end + 1, x] = True
 
                 segment_length = y_end - y_start + 1
-                line_slice = binary[y_start:y_end+1, x]
+                line_slice = image_preprocessed[y_start:y_end+1, x]
                 pixel_count = np.count_nonzero(line_slice)
                 ratio = pixel_count / segment_length
 
@@ -202,17 +187,17 @@ def detect_lines(file, image, min_length=30, y_threshold=5, gapthreshold=10, con
     if not Temp_lines:
         return
 
-    Temp_lines.sort(key=lambda l: [l[1]])
+    Temp_lines.sort(key=lambda l: [l[0]])
     Merged_lines = []
     Current_group = [Temp_lines[0]]
 
     for i in range(1, len(Temp_lines)):
         line = Temp_lines[i]
-        if (abs(line[0] - Current_group[-1][0]) <= y_threshold):
+        min_y1 = min(l[1] for l in Current_group)
+        max_y2 = max(l[3] for l in Current_group)
+        if abs(line[0] - Current_group[-1][0]) <= y_threshold  and (abs(line[1] - max_y2) < gapthreshold or abs(line[3] - min_y1) < gapthreshold):
             Current_group.append(line)
         else:
-            min_y1 = min(l[1] for l in Current_group)
-            max_y2 = max(l[3] for l in Current_group)
             avg_x = int(np.mean([l[0] for l in Current_group]))
             Merged_lines.append((avg_x, min_y1, avg_x, max_y2))
             Current_group = [line]
@@ -226,37 +211,54 @@ def detect_lines(file, image, min_length=30, y_threshold=5, gapthreshold=10, con
     horizontal_lines = merged_lines
     vertical_lines = Merged_lines
 
-    # 画线
-    for i, line in enumerate(horizontal_lines):
-        cv.line(image, (line[0], line[1]), (line[2], line[3]), (0, 255, 0), 3, cv.LINE_AA)
+    if is_draw:
+        # 画线
+        for i, line in enumerate(horizontal_lines):
+            cv.line(image, (line[0], line[1]), (line[2], line[3]), (0, 255, 0), 3, cv.LINE_AA)
 
-        cv.putText(image, str(i) + "h", (line[0] + 5, line[1]), cv.FONT_HERSHEY_SIMPLEX,
-                   0.5, (0, 0, 0), 1, cv.LINE_AA)
+            cv.putText(image, str(i) + "h", (line[0] + 5, line[1]), cv.FONT_HERSHEY_SIMPLEX,
+                       0.5, (0, 0, 0), 1, cv.LINE_AA)
 
-    for i, line in enumerate(vertical_lines):
-        cv.line(image, (line[0], line[1]), (line[2], line[3]), (0, 0, 255), 3, cv.LINE_AA)
-        cv.putText(image, str(i) + "v", (line[0], line[1] + 5), cv.FONT_HERSHEY_SIMPLEX,
-                   0.5, (0, 0, 0), 1, cv.LINE_AA)
+        for i, line in enumerate(vertical_lines):
+            cv.line(image, (line[0], line[1]), (line[2], line[3]), (0, 0, 255), 3, cv.LINE_AA)
+            cv.putText(image, str(i) + "v", (line[0], line[1] + 5), cv.FONT_HERSHEY_SIMPLEX,
+                       0.5, (0, 0, 0), 1, cv.LINE_AA)
 
-    #画框
-    color = (255, 0, 0)
+        #画框
+        color = (255, 0, 0)
 
-    for rec in rec_list:
-        pt1 = (int(rec[0][0]), int(rec[0][1]))
-        pt2 = (int(rec[2][0]), int(rec[2][1]))
+        for rec in rec_list:
+            pt1 = (int(rec[0][0]), int(rec[0][1]))
+            pt2 = (int(rec[2][0]), int(rec[2][1]))
 
-        cv.rectangle(image, pt1, pt2, color)
+            cv.rectangle(image, pt1, pt2, color)
 
-    # 将结果写入输出文件
-    res_file = file + '_res.jpg'
-    path = os.path.join('./output', res_file)
-    cv.imwrite(path, image)
-    # cv.imshow("Source", image)
-    # cv.imshow("Canny", cdstP)
-    # cv.waitKey(0)
-    # cv.destroyAllWindows()
+        # 将结果写入输出文件
+        res_file = file + '_res.jpg'
+        path = os.path.join('./output', res_file)
+        cv.imwrite(path, image)
+        # cv.imshow("Source", image)
+        # cv.imshow("Canny", cdstP)
+        # cv.waitKey(0)
+        # cv.destroyAllWindows()
 
     return horizontal_lines, vertical_lines
+
+def detect_bottom_line(vertical_lines, last_elem_rec, result):
+    bottom_line = []
+    max_x = max(l[0] for l in last_elem_rec)
+    max_y = max(l[1] for l in last_elem_rec)
+    min_x = min(l[0] for l in last_elem_rec)
+    min_y = min(l[1] for l in last_elem_rec)
+    print((min_x, min_y))
+    print((max_x, max_y))
+    for line in vertical_lines:
+        if line[0] - min_x < 50 and max_x < line[0] + 10 and max_y < line[3] and min_y > line[1]:
+            bottom_line = line
+            break
+    print(bottom_line)
+    return bottom_line #[x1, y1, x2, y2]
+
 
 def get_cropped_image(image, x, y, w, h):
     cropped_image = image[y:y + h, x:x + w]
@@ -305,6 +307,56 @@ def perform_template_matching(img, template, threshold = 0.68, overlap_threshold
 
     return template_matches, accepted_centers
 
-def get_ROI():
 
-    return
+def remove_close_coordinates(coordinates, threshold):
+    """
+    高效移除彼此接近的坐标点
+
+    参数:
+    coordinates (list): 包含坐标元组的列表，例如[(x1, y1), (x2, y2), ...]
+    threshold (float): 判断坐标是否接近的距离阈值
+
+    返回:
+    list: 过滤后的坐标列表
+    """
+    if not coordinates:
+        return []
+
+    # 把坐标转换为NumPy数组
+    coords_array = np.array(coordinates)
+
+    # 构建KD树
+    tree = cKDTree(coords_array)
+
+    # 查找每个点距离在阈值内的其他点
+    pairs = tree.query_pairs(threshold)
+
+    # 确定要移除的点
+    to_remove = set()
+    for i, j in pairs:
+        if i not in to_remove:
+            to_remove.add(j)  # 选择移除第二个点，这可以根据需求调整
+
+    # 创建过滤后的坐标列表
+    filtered_coordinates = [coord for idx, coord in enumerate(coordinates) if idx not in to_remove]
+
+    return filtered_coordinates
+
+# 获取三角形指向文本， 并返回列表
+def get_triangle_context(center, result):
+    min_x = center[0]
+    max_x = min_x + 600
+    min_y = center[1] - 60
+    max_y = center[1] + 60
+    context_list = []
+    for idx, coor in enumerate(result[0]['rec_polys']):
+        coor_min_x = min(p[0] for p in coor)
+        coor_max_x = max(p[0] for p in coor)
+        coor_min_y = min(p[1] for p in coor)
+        coor_max_y = max(p[1] for p in coor)
+        if coor_min_y > min_y and coor_max_y < max_y and coor_min_x > min_x and coor_max_x < max_x:
+            context_list.append(result[0]['rec_texts'][idx])
+
+    return context_list
+
+def determine_cover_region()

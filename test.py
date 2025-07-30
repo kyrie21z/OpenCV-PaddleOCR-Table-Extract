@@ -1,15 +1,21 @@
-# from paddleocr import PaddleOCR, PPStructureV3
-# import cv2 as cv
-# import numpy as np
-#
-# ocr = PPStructureV3(
-#     use_doc_orientation_classify=False,
-#     use_doc_unwarping=False,
-#     use_textline_orientation=True,
-# )
-#
-# img_path = 'photo/general_ocr_002.png'
-# result = ocr.predict(img_path)
+from paddleocr import PaddleOCR, PPStructureV3
+import cv2 as cv
+import numpy as np
+
+ocr = PPStructureV3(
+    use_doc_orientation_classify=False,
+    use_doc_unwarping=False,
+    use_textline_orientation=True,
+)
+
+img_path = 'output/page_3_res.png'
+image = cv.imread(img_path)
+image_cropped = image[50: image.shape[0] - 150, 200: image.shape[1] - 50]
+image_rgb = cv.cvtColor(image_cropped, cv.COLOR_BGR2RGB)
+result = ocr.predict(image_rgb)
+
+for res in result:
+    res.save_to_img('test')
 # image = cv.imread(img_path)
 #
 # for res in result:
@@ -46,37 +52,37 @@
 import cv2
 from paddleocr import PPStructureV3
 
-# 初始化PaddleOCR（首次运行会自动下载模型）
-ocr = PPStructureV3()  # 中文识别
+# # 初始化PaddleOCR（首次运行会自动下载模型）
+# ocr = PPStructureV3()  # 中文识别
 
 
 # 使用OpenCV读取并处理图像
-def process_image(image_path):
-    img = cv2.imread(image_path)
-
-    # 立即转换为RGB格式
-    rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    # 在RGB格式下进行处理（示例：灰度化）
-    gray = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY)
-
-    # 高斯模糊去噪
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-
-    # 阈值二值化
-    _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    # 转换回RGB（保持三通道，便于PaddleOCR处理）
-    final_img = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
-
-    return final_img
-
-
-# 处理图像
-processed_img = process_image("photo/general_ocr_002.png")
-
-# 将OpenCV处理后的图像传递给PaddleOCR
-result = ocr.predict(processed_img)
-
-# 输出识别结果
-print(result[0]['overall_ocr_res']['rec_texts'])
+# def process_image(image_path):
+#     img = cv2.imread(image_path)
+#
+#     # 立即转换为RGB格式
+#     rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+#
+#     # 在RGB格式下进行处理（示例：灰度化）
+#     gray = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY)
+#
+#     # 高斯模糊去噪
+#     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+#
+#     # 阈值二值化
+#     _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+#
+#     # 转换回RGB（保持三通道，便于PaddleOCR处理）
+#     final_img = cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
+#
+#     return final_img
+#
+#
+# # 处理图像
+# processed_img = process_image("photo/general_ocr_002.png")
+#
+# # 将OpenCV处理后的图像传递给PaddleOCR
+# result = ocr.predict(processed_img)
+#
+# # 输出识别结果
+# print(result[0]['overall_ocr_res']['rec_texts'])
